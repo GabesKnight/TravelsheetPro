@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SheetTravel Pro | Managed Expeditions</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        window.FirebaseSDK = { 
+            initializeApp, getAuth, GoogleAuthProvider, signInWithPopup, 
+            onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken,
+            getFirestore, doc, setDoc, getDoc, collection, onSnapshot, updateDoc, deleteDoc, query
+        };
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; }
+        .copy-box { cursor: pointer; transition: all 0.2s; border: 2px dashed #6366f1; background: #f5f3ff; }
+        .copy-box:active { transform: scale(0.98); background-color: #ede9fe; }
+        .status-badge { transition: all 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.5s ease forwards; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- AUTH CONFIGURATION ---
+        const ADMIN_EMAILS = ["gabrielstarknight@gmail.com"]; 
+        
+        // PASTE YOUR CONFIG FROM FIREBASE CONSOLE HERE IF __firebase_config is undefined
+        const fallbackConfig = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "ai-studio-applet-webapp-5eea4", // Identified from your screenshot
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
+        };
+
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : fallbackConfig;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'sheet-travel-pro';
+
+        const Icons = {
+            Plane: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>,
+            Shield: () => <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/></svg>,
+            Lock: () => <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
+            ChevronLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>,
+            Alert: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+            Copy: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>,
+            Settings: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        };
+
+        function App() {
+            const [user, setUser] = useState(null);
+            const [userData, setUserData] = useState(null);
+            const [allUsers, setAllUsers] = useState([]);
+            const [view, setView] = useState('dashboard');
+            const [loading, setLoading] = useState(true);
+            const [authError, setAuthError] = useState(null);
+            const [showDebug, setShowDebug] = useState(false);
+
+            const isAdmin = user && user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
+            const hasValidConfig = firebaseConfig && firebaseConfig.apiKey;
+
+            useEffect(() => {
+                if (!hasValidConfig) {
+                    setLoading(false);
+                    return;
+                }
+
+                let checkSDK;
+                const initAuth = async () => {
+                    checkSDK = setInterval(async () => {
+                        if (window.FirebaseSDK) {
+                            clearInterval(checkSDK);
+                            const { initializeApp, getAuth, getFirestore, onAuthStateChanged, signInAnonymously, signInWithCustomToken, doc, getDoc, setDoc } = window.FirebaseSDK;
+                            
+                            try {
+                                const app = initializeApp(firebaseConfig);
+                                const auth = getAuth(app);
+                                const db = getFirestore(app);
+
+                                const handleInitialAuth = async () => {
+                                    try {
+                                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                            await signInWithCustomToken(auth, __initial_auth_token);
+                                        } else {
+                                            await signInAnonymously(auth);
+                                        }
+                                    } catch (e) {
+                                        console.error("Auth init failed:", e);
+                                    }
+                                };
+                                await handleInitialAuth();
+
+                                onAuthStateChanged(auth, async (fbUser) => {
+                                    if (fbUser) {
+                                        const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', fbUser.uid);
+                                        try {
+                                            const snap = await getDoc(userRef);
+                                            const isEmailAdmin = fbUser.email && ADMIN_EMAILS.includes(fbUser.email.toLowerCase());
+
+                                            if (!snap.exists()) {
+                                                const profile = {
+                                                    uid: fbUser.uid,
+                                                    email: fbUser.email || 'Anonymous',
+                                                    displayName: fbUser.displayName || 'Traveler',
+                                                    photoURL: fbUser.photoURL || '',
+                                                    status: isEmailAdmin ? 'approved' : 'pending',
+                                                    requestedAt: new Date().toISOString()
+                                                };
+                                                await setDoc(userRef, profile);
+                                                setUserData(profile);
+                                            } else {
+                                                setUserData(snap.data());
+                                            }
+                                        } catch (e) {
+                                            console.error("Profile sync error:", e);
+                                        }
+                                        setUser(fbUser);
+                                    } else {
+                                        setUser(null);
+                                        setUserData(null);
+                                    }
+                                    setLoading(false);
+                                });
+                            } catch (err) {
+                                console.error("Firebase init error:", err);
+                                setAuthError({ type: 'generic', message: "Firebase configuration is invalid. Please check your apiKey and projectId." });
+                                setLoading(false);
+                            }
+                        }
+                    }, 100);
+                };
+                initAuth();
+                return () => clearInterval(checkSDK);
+            }, [hasValidConfig]);
+
+            useEffect(() => {
+                if (!isAdmin || !user) return;
+                const { getFirestore, collection, onSnapshot, query } = window.FirebaseSDK;
+                const db = getFirestore();
+                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'users'));
+                
+                const unsub = onSnapshot(q, (snap) => {
+                    setAllUsers(snap.docs.map(d => d.data()));
+                }, (err) => console.error("Admin listener error:", err));
+                
+                return () => unsub();
+            }, [isAdmin, user]);
+
+            const handleStatusChange = async (targetUid, newStatus) => {
+                if (!isAdmin) return;
+                const { getFirestore, doc, updateDoc } = window.FirebaseSDK;
+                const db = getFirestore();
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', targetUid), { status: newStatus });
+            };
+
+            const handleSignIn = async () => {
+                setAuthError(null);
+                const { getAuth, GoogleAuthProvider, signInWithPopup } = window.FirebaseSDK;
+                const auth = getAuth();
+                try {
+                    await signInWithPopup(auth, new GoogleAuthProvider());
+                } catch (err) {
+                    console.error("Sign-in failed:", err);
+                    if (err.code === 'auth/unauthorized-domain') {
+                        setAuthError({
+                            type: 'domain',
+                            hostname: window.location.hostname,
+                            message: "This domain isn't authorized for sign-in in your Firebase project."
+                        });
+                    } else {
+                        setAuthError({ type: 'generic', message: err.message });
+                    }
+                }
+            };
+
+            const handleSignOut = () => {
+                const { getAuth, signOut } = window.FirebaseSDK;
+                signOut(getAuth());
+                setView('dashboard');
+                setAuthError(null);
+            };
+
+            const copyToClipboard = (text) => {
+                const el = document.createElement('textarea');
+                el.value = text;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                // Optional: show a small toast or visual feedback
+            };
+
+            if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><div className="animate-spin text-slate-900"><Icons.Plane /></div></div>;
+
+            // Missing Config View
+            if (!hasValidConfig) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-6 bg-slate-50">
+                        <div className="w-full max-w-xl bg-white p-12 rounded-[3.5rem] shadow-2xl space-y-8 text-center animate-fade-in relative">
+                            <div className="inline-block bg-amber-100 p-6 rounded-full text-amber-600"><Icons.Settings /></div>
+                            <div className="space-y-4">
+                                <h1 className="text-3xl font-black text-slate-900">Setup Required</h1>
+                                <p className="text-slate-500 font-medium leading-relaxed px-4">
+                                    Firebase configuration is missing or incomplete. 
+                                </p>
+                            </div>
+
+                            <button 
+                                onClick={() => setShowDebug(!showDebug)}
+                                className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-900 transition-colors"
+                            >
+                                {showDebug ? "Hide Connection Info" : "Show Connection Info"}
+                            </button>
+
+                            {showDebug && (
+                                <div className="bg-slate-900 text-slate-100 p-6 rounded-3xl text-left font-mono text-[11px] space-y-2 border border-slate-800 shadow-xl">
+                                    <div className="text-slate-500 border-b border-slate-800 pb-2 mb-2 uppercase text-[9px] font-black tracking-widest">Environment Metadata</div>
+                                    <div>APP_ID: <span className="text-emerald-400">{appId}</span></div>
+                                    <div>PROJECT_ID (Linked): <span className="text-amber-400">{firebaseConfig.projectId || "ai-studio-applet-webapp-5eea4"}</span></div>
+                                    <div className="text-slate-500 pt-2 text-[9px]">Ensure this Project ID is selected in your Firebase Console.</div>
+                                </div>
+                            )}
+
+                            <div className="bg-slate-50 p-6 rounded-2xl text-left font-mono text-[11px] text-slate-600 border border-slate-100">
+                                <div>To fix: Paste your config into <code className="text-indigo-600 font-bold">fallbackConfig</code></div>
+                                <div className="mt-2 p-2 bg-white rounded border text-xs">
+                                    Project Settings &gt; General &gt; Web Apps &gt; SDK Setup
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!user || (user.isAnonymous && !userData)) {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50">
+                        <div className="w-full max-w-xl bg-white p-12 rounded-[3.5rem] shadow-2xl border border-slate-100 space-y-10 animate-fade-in">
+                            <div className="text-center space-y-4">
+                                <div className="inline-block bg-slate-900 p-5 rounded-3xl text-white shadow-xl shadow-slate-200"><Icons.Plane /></div>
+                                <h1 className="text-4xl font-black tracking-tight text-slate-900">SheetTravel Pro</h1>
+                                <p className="text-slate-500 font-medium">Log in to manage your fleet and expeditions.</p>
+                            </div>
+                            
+                            {authError?.type === 'domain' && (
+                                <div className="bg-indigo-50 border border-indigo-200 rounded-[2rem] p-8 space-y-6">
+                                    <div className="flex items-center gap-3 text-indigo-800 font-black uppercase tracking-widest text-xs">
+                                        <Icons.Alert /> Authorized Domain Required
+                                    </div>
+                                    <div className="text-sm text-indigo-900 space-y-4 leading-relaxed font-medium">
+                                        <p>Firebase blocks sign-ins from unrecognized URLs. To fix the <strong>auth/unauthorized-domain</strong> error:</p>
+                                        <ol className="list-decimal ml-5 space-y-3">
+                                            <li>Open project <strong className="text-indigo-600">ai-studio-applet-webapp-5eea4</strong> in Firebase Console.</li>
+                                            <li>Go to <strong>Authentication</strong> &gt; <strong>Settings</strong> &gt; <strong>Authorized domains</strong>.</li>
+                                            <li>Click <strong>Add domain</strong> and paste this exact host:</li>
+                                        </ol>
+                                        <div 
+                                            onClick={() => copyToClipboard(authError.hostname)}
+                                            className="copy-box p-5 rounded-2xl flex items-center justify-between text-xs font-mono group hover:bg-white transition-all border-2 border-indigo-200 border-dashed"
+                                        >
+                                            <span className="truncate pr-4 text-indigo-900 font-bold">{authError.hostname}</span>
+                                            <div className="flex items-center gap-2 text-[10px] font-black uppercase text-indigo-600 bg-indigo-100 px-3 py-1.5 rounded-lg whitespace-nowrap">
+                                                Copy Host <Icons.Copy />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setAuthError(null)}
+                                        className="w-full py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg"
+                                    >
+                                        Dismiss and try again
+                                    </button>
+                                </div>
+                            )}
+
+                            {authError?.type === 'generic' && (
+                                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-start gap-3">
+                                    <div className="text-rose-500 mt-0.5"><Icons.Alert /></div>
+                                    <div className="flex-1">
+                                        <p className="text-xs text-rose-900 font-bold leading-relaxed">{authError.message}</p>
+                                        <button onClick={() => setAuthError(null)} className="text-[10px] font-black uppercase tracking-widest text-rose-500 mt-2">Dismiss</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <button 
+                                onClick={handleSignIn} 
+                                className="w-full bg-slate-900 text-white font-bold py-5 rounded-[1.5rem] flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl shadow-slate-200 active:scale-[0.98]"
+                            >
+                                <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="currentColor" d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/></svg>
+                                Continue with Google
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (userData?.status === 'pending') {
+                return (
+                    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-slate-50 text-center animate-fade-in">
+                        <div className="bg-white p-14 rounded-[3.5rem] shadow-2xl border border-slate-100 max-w-md space-y-8">
+                            <div className="bg-amber-100 text-amber-600 w-20 h-20 rounded-full flex items-center justify-center mx-auto shadow-inner"><Icons.Lock /></div>
+                            <div className="space-y-2">
+                                <h2 className="text-3xl font-black text-slate-900 tracking-tight">Access Pending</h2>
+                                <p className="text-slate-500 font-medium leading-relaxed">Your mission credentials are currently being reviewed by command.</p>
+                            </div>
+                            <div className="p-5 bg-slate-50 rounded-2xl border border-slate-100">
+                                <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Registry ID</p>
+                                <code className="text-[11px] font-bold text-slate-700 break-all select-all">{user.uid}</code>
+                            </div>
+                            <button onClick={handleSignOut} className="w-full py-4 text-sm font-black uppercase tracking-widest text-rose-500 hover:bg-rose-50 rounded-2xl transition-all">Sign Out</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-slate-50 animate-fade-in">
+                    <nav className="bg-white/80 backdrop-blur-md border-b px-8 py-5 flex items-center justify-between sticky top-0 z-50">
+                        <div className="flex items-center gap-4 cursor-pointer group" onClick={() => setView('dashboard')}>
+                            <div className="bg-slate-900 p-2.5 rounded-xl text-white group-hover:rotate-12 transition-transform shadow-lg shadow-slate-200"><Icons.Plane /></div>
+                            <h1 className="text-xl font-black tracking-tight text-slate-900">SheetTravel</h1>
+                        </div>
+                        <div className="flex items-center gap-8">
+                            {isAdmin && (
+                                <button 
+                                    onClick={() => setView('admin')} 
+                                    className={`flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.2em] px-6 py-3 rounded-2xl transition-all shadow-sm ${view === 'admin' ? 'bg-slate-900 text-white shadow-slate-200' : 'text-slate-500 hover:bg-slate-100 bg-white border border-slate-200'}`}
+                                >
+                                    <Icons.Shield /> Command Center
+                                </button>
+                            )}
+                            <div className="h-10 w-px bg-slate-200 hidden md:block"></div>
+                            <div className="flex items-center gap-4">
+                                <div className="text-right hidden sm:block">
+                                    <div className="text-xs font-black text-slate-900">{userData?.displayName}</div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{isAdmin ? 'Command Admin' : 'Active Personnel'}</div>
+                                </div>
+                                {user.photoURL ? (
+                                    <img src={user.photoURL} className="w-10 h-10 rounded-2xl border-2 border-white shadow-md" alt="Avatar" />
+                                ) : (
+                                    <div className="w-10 h-10 rounded-2xl bg-slate-200 flex items-center justify-center font-black text-slate-500 border-2 border-white shadow-md">{userData?.displayName?.[0]}</div>
+                                )}
+                                <button onClick={handleSignOut} className="p-2 text-slate-400 hover:text-rose-500 transition-colors" title="Sign Out">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-7xl mx-auto p-10">
+                        {view === 'admin' && isAdmin ? (
+                            <div className="space-y-10">
+                                <div className="flex items-center gap-5">
+                                    <button onClick={() => setView('dashboard')} className="p-3 bg-white hover:bg-slate-100 rounded-2xl border shadow-sm transition-all"><Icons.ChevronLeft /></button>
+                                    <div>
+                                        <h2 className="text-5xl font-black tracking-tighter text-slate-900">Personnel Hub</h2>
+                                        <p className="text-slate-400 text-sm font-bold uppercase tracking-[0.3em] mt-1 ml-1">Fleet Access Control</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="bg-white rounded-[3rem] border border-slate-100 overflow-hidden shadow-xl shadow-slate-200/50">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left">
+                                            <thead>
+                                                <tr className="bg-slate-50/80 border-b">
+                                                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Registry Detail</th>
+                                                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Clearance Status</th>
+                                                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 text-right">Operations</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-50">
+                                                {allUsers.map(u => (
+                                                    <tr key={u.uid} className="group hover:bg-slate-50/50 transition-colors">
+                                                        <td className="px-10 py-8">
+                                                            <div className="flex items-center gap-5">
+                                                                <div className="w-14 h-14 rounded-[1.25rem] bg-slate-100 overflow-hidden border-4 border-white shadow-sm">
+                                                                    {u.photoURL ? <img src={u.photoURL} alt="" /> : <div className="w-full h-full flex items-center justify-center font-black text-slate-300 text-xl">{u.displayName?.[0]}</div>}
+                                                                </div>
+                                                                <div>
+                                                                    <div className="font-black text-slate-900 text-lg tracking-tight">{u.displayName}</div>
+                                                                    <div className="text-xs text-slate-400 font-bold">{u.email}</div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-10 py-8">
+                                                            <span className={`status-badge text-[10px] font-black uppercase px-5 py-2 rounded-2xl tracking-[0.1em] shadow-sm ${u.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                                {u.status}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-10 py-8 text-right">
+                                                            {u.status === 'pending' ? (
+                                                                <button 
+                                                                    onClick={() => handleStatusChange(u.uid, 'approved')}
+                                                                    className="bg-slate-900 text-white px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-all shadow-lg shadow-slate-200"
+                                                                >
+                                                                    Grant Access
+                                                                </button>
+                                                            ) : (
+                                                                !ADMIN_EMAILS.includes(u.email.toLowerCase()) && (
+                                                                    <button 
+                                                                        onClick={() => handleStatusChange(u.uid, 'pending')}
+                                                                        className="text-rose-500 hover:bg-rose-50 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
+                                                                    >
+                                                                        Revoke Clear
+                                                                    </button>
+                                                                )
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {allUsers.length === 0 && (
+                                                    <tr>
+                                                        <td colSpan="3" className="px-10 py-20 text-center">
+                                                            <div className="text-slate-300 font-black uppercase text-sm tracking-[0.4em]">Empty Registry</div>
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-12">
+                                <header className="text-center md:text-left space-y-2">
+                                    <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Active Expeditions</h2>
+                                    <p className="text-slate-400 font-bold uppercase tracking-[0.4em] ml-1">Fleet Operations Dashboard</p>
+                                </header>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+                                    <div className="group p-12 bg-white border-4 border-dashed border-slate-200 rounded-[3.5rem] flex flex-col items-center justify-center text-center space-y-6 hover:border-slate-300 hover:bg-white hover:shadow-2xl hover:shadow-slate-200 transition-all cursor-pointer">
+                                        <div className="bg-slate-100 p-6 rounded-[2rem] text-slate-300 group-hover:text-slate-900 group-hover:bg-slate-200 group-hover:rotate-12 transition-all"><Icons.Plane /></div>
+                                        <div className="space-y-1">
+                                            <span className="block text-[11px] font-black uppercase tracking-[0.3em] text-slate-400 group-hover:text-slate-900 transition-all">Launch New Mission</span>
+                                            <p className="text-[10px] font-bold text-slate-300">Deploy a new travel route</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-white p-10 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 space-y-6">
+                                        <div className="flex justify-between items-start">
+                                            <div className="bg-emerald-100 text-emerald-600 p-4 rounded-2xl"><Icons.Plane /></div>
+                                            <span className="text-[9px] font-black uppercase px-3 py-1 bg-emerald-50 text-emerald-500 rounded-full tracking-widest">In Flight</span>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-xl font-black text-slate-900">Sample Expedition</h3>
+                                            <p className="text-xs text-slate-400 font-medium">LHR → JFK • Managed by Personnel</p>
+                                        </div>
+                                        <div className="h-2 w-full bg-slate-50 rounded-full overflow-hidden">
+                                            <div className="h-full bg-slate-900 w-3/4 rounded-full"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
