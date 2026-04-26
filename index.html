@@ -11,7 +11,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- React & Babel for Browser Parsing -->
+    <!-- React & Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -21,14 +21,12 @@
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; }
         .animate-in { animation: fadeIn 0.4s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        /* Prevent Lucide from causing layout shifts or React mismatches */
         .lucide-icon { display: inline-block; vertical-align: middle; }
     </style>
 </head>
 <body class="bg-slate-50">
     <div id="root"></div>
 
-    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { 
@@ -37,7 +35,8 @@
             signInWithPopup, 
             GoogleAuthProvider, 
             signOut,
-            signInAnonymously
+            signInAnonymously,
+            signInWithCustomToken
         } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         import { 
             getFirestore, 
@@ -45,66 +44,57 @@
             setDoc, 
             onSnapshot, 
             updateDoc, 
-            collection 
+            collection,
+            getDoc
         } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
-        // --- CONFIGURATION ---
-        const ADMIN_EMAILS = ["gabrielstarknight@gmail.com"]; 
-        const baseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        
-        const firebaseConfig = {
-            apiKey: baseConfig.apiKey || "", 
-            authDomain: "ai-studio-applet-webapp-5eea4.firebaseapp.com",
-            projectId: "ai-studio-applet-webapp-5eea4",
-            storageBucket: "ai-studio-applet-webapp-5eea4.firebasestorage.app",
-            messagingSenderId: baseConfig.messagingSenderId || "",
-            appId: baseConfig.appId || ""
-        };
-
+        // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'sheet-travel-pro';
+        const ADMIN_EMAILS = ["gabrielstarknight@gmail.com"]; 
 
-        try {
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
+        async function initFirebase() {
+            try {
+                // Use the environment-provided configuration
+                const firebaseConfig = JSON.parse(__firebase_config);
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
 
-            window.FirebaseOps = { 
-                auth, db, GoogleAuthProvider, signInWithPopup, signOut, 
-                onAuthStateChanged, doc, setDoc, onSnapshot, updateDoc, 
-                collection, signInAnonymously, appId, ADMIN_EMAILS,
-                isReady: true 
-            };
-        } catch (error) {
-            console.error("Firebase Initialization Error:", error);
-            window.FirebaseOps = { error: error.message, isReady: true };
+                // Authentication Logic (Rule 3)
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                window.FirebaseOps = { 
+                    auth, db, GoogleAuthProvider, signInWithPopup, signOut, 
+                    onAuthStateChanged, doc, setDoc, onSnapshot, updateDoc, 
+                    collection, getDoc, appId, ADMIN_EMAILS,
+                    isReady: true 
+                };
+            } catch (error) {
+                console.error("Firebase Setup Error:", error);
+                window.FirebaseOps = { error: error.message, isReady: true };
+            }
         }
+
+        initFirebase();
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // Optimized Icon component to prevent DOM interference
         const Icon = ({ name, size = 20, className = "" }) => {
             const iconRef = useRef(null);
-            
             useEffect(() => {
                 if (window.lucide && iconRef.current) {
-                    // Create icons but limit scope to this specific element
-                    window.lucide.createIcons({
-                        attrs: {
-                            class: `lucide-icon ${className}`,
-                            'stroke-width': 2
-                        }
-                    });
+                    window.lucide.createIcons();
                 }
-            }, [name, className]);
+            }, [name]);
 
             return (
-                <span 
-                    ref={iconRef} 
-                    style={{ width: size, height: size, display: 'inline-flex' }}
-                    dangerouslySetInnerHTML={{ __html: `<i data-lucide="${name}" style="width: ${size}px; height: ${size}px;"></i>` }}
-                />
+                <i data-lucide={name} className={`lucide-icon ${className}`} style={{ width: size, height: size }}></i>
             );
         };
 
@@ -115,156 +105,111 @@
             const [allUsers, setAllUsers] = useState([]);
             const [view, setView] = useState('dashboard');
             const [loading, setLoading] = useState(true);
-            const [authError, setAuthError] = useState(null);
 
-            // Wait for Firebase module to initialize
+            // Wait for background Firebase init
             useEffect(() => {
-                const interval = setInterval(() => {
+                const checkOps = setInterval(() => {
                     if (window.FirebaseOps && window.FirebaseOps.isReady) {
                         setOps(window.FirebaseOps);
-                        clearInterval(interval);
+                        clearInterval(checkOps);
                     }
-                }, 50);
-                return () => clearInterval(interval);
+                }, 100);
+                return () => clearInterval(checkOps);
             }, []);
 
+            // Handle Auth State
             useEffect(() => {
                 if (!ops || ops.error) return;
-
-                const { auth, onAuthStateChanged, signInAnonymously } = ops;
-                const unsub = onAuthStateChanged(auth, (fbUser) => {
-                    setUser(fbUser);
-                    if (!fbUser) {
-                        signInAnonymously(auth).catch(err => {
-                            console.error("Anonymous sign-in failed:", err);
-                        });
-                        setLoading(false);
-                    }
+                const unsub = ops.onAuthStateChanged(ops.auth, (u) => {
+                    setUser(u);
+                    if (!u) setLoading(false);
                 });
                 return () => unsub();
             }, [ops]);
 
+            // Sync User Profile (Rule 1 & 3)
             useEffect(() => {
-                if (!ops || !user || (user.isAnonymous && !user.email)) return;
+                if (!ops || !user) return;
 
-                const { db, appId, ADMIN_EMAILS, doc, onSnapshot, setDoc } = ops;
-                const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid);
+                const userRef = ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', user.uid);
                 
-                const unsub = onSnapshot(userRef, async (snap) => {
+                const unsub = ops.onSnapshot(userRef, async (snap) => {
                     if (!snap.exists()) {
-                        const isEmailAdmin = user.email && ADMIN_EMAILS.includes(user.email.toLowerCase());
+                        const isEmailAdmin = user.email && ops.ADMIN_EMAILS.includes(user.email.toLowerCase());
                         const newProfile = {
                             uid: user.uid,
                             email: user.email || 'Anonymous',
-                            displayName: user.displayName || 'Guest Traveler',
+                            displayName: user.displayName || 'Guest User',
                             photoURL: user.photoURL || '',
                             status: isEmailAdmin ? 'approved' : 'pending',
                             createdAt: new Date().toISOString()
                         };
-                        try {
-                            await setDoc(userRef, newProfile);
-                            setUserData(newProfile);
-                        } catch (e) {
-                            console.error("Profile creation error:", e);
-                        }
+                        await ops.setDoc(userRef, newProfile);
+                        setUserData(newProfile);
                     } else {
                         setUserData(snap.data());
                     }
                     setLoading(false);
                 }, (err) => {
-                    console.error("Firestore sync error:", err);
+                    console.error("Profile sync error:", err);
                     setLoading(false);
                 });
 
                 return () => unsub();
             }, [ops, user]);
 
+            // Admin List Sync
             useEffect(() => {
                 const isAdmin = user && user.email && ops?.ADMIN_EMAILS.includes(user.email.toLowerCase());
                 if (!ops || !user || !isAdmin) return;
 
-                const { db, appId, collection, onSnapshot } = ops;
-                const usersCol = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-                return onSnapshot(usersCol, (snap) => {
+                const usersCol = ops.collection(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users');
+                return ops.onSnapshot(usersCol, (snap) => {
                     setAllUsers(snap.docs.map(d => d.data()));
-                }, (err) => console.error("Admin list access denied:", err));
+                }, (err) => console.error("Admin listener error:", err));
             }, [ops, user]);
 
-            const handleGoogleSignIn = async () => {
-                if (!ops) return;
-                const { auth, GoogleAuthProvider, signInWithPopup } = ops;
-                const provider = new GoogleAuthProvider();
+            const handleSignIn = async () => {
                 try {
-                    setLoading(true);
-                    await signInWithPopup(auth, provider);
-                } catch (err) {
-                    setAuthError(err.message);
-                } finally {
-                    setLoading(false);
+                    const provider = new ops.GoogleAuthProvider();
+                    await ops.signInWithPopup(ops.auth, provider);
+                } catch (e) {
+                    console.error("Sign in error:", e);
                 }
             };
 
-            const copyDomain = () => {
-                const el = document.createElement('textarea');
-                el.value = 'gabesknight.github.io';
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
-            };
-
-            if (ops?.error) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center p-6 bg-rose-50">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-md border border-rose-100">
-                            <h2 className="text-xl font-bold text-rose-600 mb-4">Auth Service Down</h2>
-                            <p className="text-sm text-slate-600 mb-4">Check project settings in Firebase Console.</p>
-                            <code className="block bg-slate-100 p-3 rounded-lg text-[10px] text-rose-500 overflow-auto">{ops.error}</code>
-                        </div>
-                    </div>
-                );
-            }
-
-            if (loading || !ops) return (
-                <div className="min-h-screen flex items-center justify-center bg-white">
-                    <div className="text-indigo-600 flex flex-col items-center gap-4">
-                        <Icon name="plane" size={48} className="animate-bounce" />
-                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">Loading Fleet...</span>
+            if (ops?.error) return (
+                <div className="min-h-screen flex items-center justify-center bg-rose-50 p-6">
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-rose-100 max-w-sm text-center">
+                        <Icon name="alert-triangle" className="text-rose-500 mx-auto mb-4" size={48} />
+                        <h2 className="text-xl font-bold text-slate-900">Connection Error</h2>
+                        <p className="text-slate-500 text-sm mt-2">{ops.error}</p>
                     </div>
                 </div>
             );
 
-            const isAdmin = user && user.email && ops.ADMIN_EMAILS.includes(user.email.toLowerCase());
+            if (loading || !ops) return (
+                <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+                    <Icon name="plane" size={48} className="text-indigo-600 animate-bounce" />
+                    <p className="mt-4 text-[10px] font-black uppercase tracking-widest text-slate-400">Synchronizing Fleet...</p>
+                </div>
+            );
 
-            if (!user || (user.isAnonymous && !user.email)) {
+            // Access Control
+            if (!user || user.isAnonymous) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 border border-slate-100 animate-in">
-                            <div className="text-center space-y-3">
-                                <div className="bg-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg shadow-indigo-200">
-                                    <Icon name="plane" size={32} />
-                                </div>
-                                <h1 className="text-3xl font-black text-slate-900 tracking-tight">SheetTravel Pro</h1>
-                                <p className="text-slate-500 font-medium">Fleet Management & Expeditions</p>
+                        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 space-y-8 animate-in text-center border border-slate-100">
+                            <div className="bg-indigo-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg">
+                                <Icon name="plane" size={32} />
                             </div>
-
-                            <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6 space-y-4">
-                                <div className="flex items-center gap-2 text-indigo-700 font-bold text-sm">
-                                    <Icon name="globe" size={18} /> Domain Auth Required
-                                </div>
-                                <p className="text-xs text-indigo-900 leading-relaxed">
-                                    Add this domain to Firebase Authorized Domains to enable login:
-                                </p>
-                                <div onClick={copyDomain} className="bg-white border-2 border-dashed border-indigo-200 p-3 rounded-xl flex items-center justify-between cursor-pointer group">
-                                    <code className="text-[10px] font-bold text-indigo-600">gabesknight.github.io</code>
-                                    <Icon name="copy" size={14} className="text-indigo-400 group-hover:text-indigo-600" />
-                                </div>
+                            <div>
+                                <h1 className="text-3xl font-black text-slate-900">SheetTravel Pro</h1>
+                                <p className="text-slate-500 font-medium">Logistics & Fleet Management</p>
                             </div>
-
-                            <button onClick={handleGoogleSignIn} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl active:scale-95">
-                                Continue with Google
+                            <button onClick={handleSignIn} className="w-full bg-slate-900 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-800 transition-all shadow-xl active:scale-95">
+                                <Icon name="log-in" size={20} /> Continue with Google
                             </button>
-                            {authError && <p className="text-[10px] text-center text-rose-500 font-bold uppercase">{authError}</p>}
                         </div>
                     </div>
                 );
@@ -272,62 +217,67 @@
 
             if (userData?.status === 'pending') {
                 return (
-                    <div className="min-h-screen flex items-center justify-center p-6 text-center">
-                        <div className="max-w-sm w-full bg-white rounded-[2.5rem] shadow-2xl p-12 space-y-6">
+                    <div className="min-h-screen flex items-center justify-center p-6">
+                        <div className="max-w-sm w-full bg-white rounded-[2.5rem] shadow-2xl p-12 text-center space-y-4">
                             <div className="bg-amber-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto text-amber-600">
-                                <Icon name="lock" size={40} />
+                                <Icon name="clock" size={40} />
                             </div>
-                            <h2 className="text-2xl font-black text-slate-900">Clearance Pending</h2>
-                            <p className="text-slate-500 text-sm">Your account is in the review queue. Please wait for commander approval.</p>
-                            <button onClick={() => ops.signOut(ops.auth)} className="text-xs font-black text-rose-500 uppercase tracking-widest hover:underline">Sign Out</button>
+                            <h2 className="text-2xl font-black text-slate-900">Access Restricted</h2>
+                            <p className="text-slate-500 text-sm">Your clearance is currently under review by the administrator.</p>
+                            <button onClick={() => ops.signOut(ops.auth)} className="text-rose-500 font-black uppercase text-[10px] tracking-widest hover:underline">Sign Out</button>
                         </div>
                     </div>
                 );
             }
 
+            const isAdminView = view === 'admin';
+
             return (
-                <div className="min-h-screen flex flex-col">
-                    <nav className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+                <div className="min-h-screen flex flex-col bg-slate-50">
+                    <nav className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-20">
                         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setView('dashboard')}>
-                            <div className="bg-indigo-600 p-2 rounded-xl text-white flex items-center justify-center">
+                            <div className="bg-indigo-600 p-2 rounded-xl text-white">
                                 <Icon name="plane" size={20} />
                             </div>
                             <span className="text-xl font-black tracking-tight text-slate-900">SheetTravel</span>
                         </div>
-                        <div className="flex items-center gap-6">
-                            {isAdmin && (
-                                <button onClick={() => setView(view === 'admin' ? 'dashboard' : 'admin')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${view === 'admin' ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'}`}>
-                                    {view === 'admin' ? 'Exit Hub' : 'Admin Hub'}
+                        <div className="flex items-center gap-4">
+                            {ops.ADMIN_EMAILS.includes(user.email?.toLowerCase()) && (
+                                <button 
+                                    onClick={() => setView(isAdminView ? 'dashboard' : 'admin')}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${isAdminView ? 'bg-slate-900 text-white shadow-lg' : 'text-slate-500 hover:bg-slate-100'}`}
+                                >
+                                    {isAdminView ? 'Fleet View' : 'Admin Hub'}
                                 </button>
                             )}
-                            <button onClick={() => ops.signOut(ops.auth)} className="text-slate-400 hover:text-rose-500 transition-colors flex items-center">
-                                <Icon name="log-out" />
+                            <button onClick={() => ops.signOut(ops.auth)} className="p-2 text-slate-400 hover:text-rose-500 transition-colors">
+                                <Icon name="log-out" size={20} />
                             </button>
                         </div>
                     </nav>
 
                     <main className="flex-1 max-w-7xl w-full mx-auto p-8">
-                        {view === 'admin' ? (
+                        {isAdminView ? (
                             <div className="space-y-8 animate-in">
-                                <h2 className="text-4xl font-black text-slate-900">Personnel Hub</h2>
-                                <div className="bg-white rounded-3xl border shadow-sm overflow-hidden">
+                                <h2 className="text-4xl font-black text-slate-900">Personnel Clearance</h2>
+                                <div className="bg-white rounded-[2rem] border shadow-sm overflow-hidden">
                                     <table className="w-full text-left">
                                         <thead className="bg-slate-50 border-b">
                                             <tr>
-                                                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400">Personnel</th>
-                                                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400">Status</th>
-                                                <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 text-right">Actions</th>
+                                                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400">Pilot</th>
+                                                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400">Status</th>
+                                                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 text-right">Action</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y">
+                                        <tbody className="divide-y divide-slate-100">
                                             {allUsers.map(u => (
                                                 <tr key={u.uid} className="hover:bg-slate-50 transition-colors">
                                                     <td className="px-8 py-5 flex items-center gap-4">
-                                                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-400 overflow-hidden">
-                                                            {u.photoURL ? <img src={u.photoURL} className="w-full h-full object-cover" /> : u.displayName?.[0]}
+                                                        <div className="w-10 h-10 rounded-full bg-slate-100 overflow-hidden">
+                                                            {u.photoURL ? <img src={u.photoURL} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center font-bold text-slate-300">{u.displayName[0]}</div>}
                                                         </div>
                                                         <div>
-                                                            <div className="font-bold text-sm">{u.displayName}</div>
+                                                            <div className="font-bold text-sm text-slate-900">{u.displayName}</div>
                                                             <div className="text-xs text-slate-400">{u.email}</div>
                                                         </div>
                                                     </td>
@@ -338,10 +288,20 @@
                                                     </td>
                                                     <td className="px-8 py-5 text-right">
                                                         {u.status === 'pending' ? (
-                                                            <button onClick={() => ops.updateDoc(ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', u.uid), { status: 'approved' })} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 transition-all">Approve</button>
+                                                            <button 
+                                                                onClick={() => ops.updateDoc(ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', u.uid), { status: 'approved' })}
+                                                                className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-700 shadow-lg shadow-indigo-100"
+                                                            >
+                                                                Approve
+                                                            </button>
                                                         ) : (
                                                             !ops.ADMIN_EMAILS.includes(u.email?.toLowerCase()) && (
-                                                                <button onClick={() => ops.updateDoc(ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', u.uid), { status: 'pending' })} className="text-rose-500 text-[10px] font-black uppercase font-bold hover:bg-rose-50 px-3 py-1 rounded-lg">Revoke</button>
+                                                                <button 
+                                                                    onClick={() => ops.updateDoc(ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', u.uid), { status: 'pending' })}
+                                                                    className="text-rose-500 font-black uppercase text-[10px] hover:bg-rose-50 px-3 py-1 rounded-lg"
+                                                                >
+                                                                    Revoke
+                                                                </button>
                                                             )
                                                         )}
                                                     </td>
@@ -355,28 +315,32 @@
                             <div className="space-y-12 animate-in">
                                 <header className="flex justify-between items-end">
                                     <div>
-                                        <h2 className="text-4xl font-black text-slate-900 tracking-tight">Active Fleet</h2>
-                                        <p className="text-slate-500 font-medium">Commander Clearance: {isAdmin ? 'High' : 'Pilot'}</p>
+                                        <h2 className="text-4xl font-black text-slate-900">Active Expeditions</h2>
+                                        <p className="text-slate-500 font-medium mt-1">Welcome back, {user.displayName.split(' ')[0]}</p>
                                     </div>
-                                    <button className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-lg active:scale-95">
-                                        <Icon name="plus" size={18} /> New Expedition
+                                    <button className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl active:scale-95">
+                                        <Icon name="plus" size={18} /> New Fleet Member
                                     </button>
                                 </header>
+                                
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                                    <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-xl transition-all group cursor-pointer">
-                                        <div className="bg-indigo-50 text-indigo-600 w-12 h-12 rounded-xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                            <Icon name="plane" />
+                                    <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all group cursor-pointer">
+                                        <div className="bg-indigo-50 text-indigo-600 w-14 h-14 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-all">
+                                            <Icon name="map" size={24} />
                                         </div>
-                                        <h3 className="text-xl font-black text-slate-900">Tokyo Expedition</h3>
-                                        <p className="text-xs text-slate-400 mt-2 font-bold uppercase tracking-widest">Status: Ready</p>
-                                        <div className="mt-6 flex items-center gap-2 text-emerald-600 font-bold text-[10px] uppercase bg-emerald-50 w-fit px-3 py-1 rounded-full">
-                                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-                                            Live Telemetry
+                                        <h3 className="text-xl font-black text-slate-900">Fleet Dashboard</h3>
+                                        <p className="text-sm text-slate-500 mt-2">Manage your current aircraft and travel logistics.</p>
+                                        <div className="mt-8 flex items-center justify-between border-t pt-6">
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">0 Active Trips</span>
+                                            <Icon name="chevron-right" className="text-slate-300 group-hover:text-indigo-600 transition-colors" />
                                         </div>
                                     </div>
-                                    <div className="border-4 border-dashed border-slate-200 rounded-[2rem] flex flex-col items-center justify-center p-8 text-slate-300 hover:border-indigo-200 hover:bg-indigo-50/50 transition-all cursor-pointer group">
-                                        <Icon name="plus" size={32} className="group-hover:text-indigo-400" />
-                                        <span className="font-bold text-sm mt-2">Add Aircraft</span>
+                                    
+                                    <div className="border-4 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center p-12 text-slate-300 hover:border-indigo-200 hover:bg-indigo-50/30 transition-all cursor-pointer group">
+                                        <div className="p-4 bg-slate-50 rounded-full group-hover:bg-indigo-100 group-hover:text-indigo-600 transition-all">
+                                            <Icon name="plus" size={32} />
+                                        </div>
+                                        <span className="font-bold text-sm mt-4 text-slate-400 group-hover:text-indigo-600">Register New Aircraft</span>
                                     </div>
                                 </div>
                             </div>
