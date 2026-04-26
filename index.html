@@ -48,23 +48,42 @@
             getDoc
         } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
-        // Global variables provided by the environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'sheet-travel-pro';
+        // --- CONFIGURATION ---
+        // Your specific Firebase configuration for GitHub Pages deployment
+        const fallbackConfig = {
+            apiKey: "AIzaSyDYYzeP0ksqlgxijfRGmUrzudydYMPzomI",
+            authDomain: "ai-studio-applet-webapp-5eea4.firebaseapp.com",
+            projectId: "ai-studio-applet-webapp-5eea4",
+            storageBucket: "ai-studio-applet-webapp-5eea4.firebasestorage.app",
+            messagingSenderId: "337797489497",
+            appId: "1:337797489497:web:e7467a156b52e16243a248"
+        };
+
         const ADMIN_EMAILS = ["gabrielstarknight@gmail.com"]; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'sheet-travel-pro';
 
         async function initFirebase() {
             try {
-                // Use the environment-provided configuration
-                const firebaseConfig = JSON.parse(__firebase_config);
-                const app = initializeApp(firebaseConfig);
+                let config;
+                
+                // Try environment variable first (Canvas internal), then fallback to your manual config (GitHub)
+                if (typeof __firebase_config !== 'undefined') {
+                    config = JSON.parse(__firebase_config);
+                } else {
+                    config = fallbackConfig;
+                }
+
+                const app = initializeApp(config);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
 
-                // Authentication Logic (Rule 3)
+                // Authentication Logic
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
-                    await signInAnonymously(auth);
+                    // Start an anonymous session so the database can be reached if open,
+                    // but allow user to upgrade to Google Auth later.
+                    signInAnonymously(auth).catch(() => {});
                 }
 
                 window.FirebaseOps = { 
@@ -106,7 +125,6 @@
             const [view, setView] = useState('dashboard');
             const [loading, setLoading] = useState(true);
 
-            // Wait for background Firebase init
             useEffect(() => {
                 const checkOps = setInterval(() => {
                     if (window.FirebaseOps && window.FirebaseOps.isReady) {
@@ -117,7 +135,6 @@
                 return () => clearInterval(checkOps);
             }, []);
 
-            // Handle Auth State
             useEffect(() => {
                 if (!ops || ops.error) return;
                 const unsub = ops.onAuthStateChanged(ops.auth, (u) => {
@@ -127,9 +144,11 @@
                 return () => unsub();
             }, [ops]);
 
-            // Sync User Profile (Rule 1 & 3)
             useEffect(() => {
-                if (!ops || !user) return;
+                if (!ops || !user || user.isAnonymous) {
+                    if (user?.isAnonymous) setLoading(false);
+                    return;
+                }
 
                 const userRef = ops.doc(ops.db, 'artifacts', ops.appId, 'public', 'data', 'users', user.uid);
                 
@@ -158,7 +177,6 @@
                 return () => unsub();
             }, [ops, user]);
 
-            // Admin List Sync
             useEffect(() => {
                 const isAdmin = user && user.email && ops?.ADMIN_EMAILS.includes(user.email.toLowerCase());
                 if (!ops || !user || !isAdmin) return;
@@ -184,6 +202,7 @@
                         <Icon name="alert-triangle" className="text-rose-500 mx-auto mb-4" size={48} />
                         <h2 className="text-xl font-bold text-slate-900">Connection Error</h2>
                         <p className="text-slate-500 text-sm mt-2">{ops.error}</p>
+                        <p className="text-[10px] text-slate-400 mt-4 uppercase font-bold">Check fallbackConfig in index.html</p>
                     </div>
                 </div>
             );
@@ -195,7 +214,6 @@
                 </div>
             );
 
-            // Access Control
             if (!user || user.isAnonymous) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
@@ -316,7 +334,7 @@
                                 <header className="flex justify-between items-end">
                                     <div>
                                         <h2 className="text-4xl font-black text-slate-900">Active Expeditions</h2>
-                                        <p className="text-slate-500 font-medium mt-1">Welcome back, {user.displayName.split(' ')[0]}</p>
+                                        <p className="text-slate-500 font-medium mt-1">Welcome back, {user.displayName?.split(' ')[0] || 'Member'}</p>
                                     </div>
                                     <button className="bg-slate-900 text-white px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-800 transition-all shadow-xl active:scale-95">
                                         <Icon name="plus" size={18} /> New Fleet Member
